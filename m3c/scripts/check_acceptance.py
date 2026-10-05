@@ -163,11 +163,14 @@ def make_contract(run_dir, candidate="m3c-cts-only"):
                 liberty_sha256=identity["pdk_stdcell_liberty_sha256 (hosted)"])
 
 
-def check_identity(v, analysis, contract, resolved, rtl_hashes):
+def check_identity(v, analysis, contract, resolved, rtl_hashes, api_run=None):
     v.equal("contract.schema", contract.get("schema"), CONTRACT_SCHEMA)
     identity = analysis.get("identity", {})
     hosted = identity.get("hosted_run_identity", {})
-    run = identity.get("run", {})
+    # The historical analyzer intentionally projects only selected API fields;
+    # in particular it omits attempt. Bind to retained run.json when available
+    # without changing that preserved analyzer schema or its regressions.
+    run = api_run if api_run is not None else identity.get("run", {})
     for key, field in (("repository", "GITHUB_REPOSITORY"), ("source_sha", "GITHUB_SHA"),
                        ("run_id", "GITHUB_RUN_ID"), ("attempt", "GITHUB_RUN_ATTEMPT"), ("candidate", "CANDIDATE")):
         v.equal("identity." + key, hosted.get(field), contract.get(key))
@@ -285,7 +288,10 @@ def check_area(v, analysis, contract):
         v.nonempty("area.routed." + key, keys.get(key))
     v.count("area.routed.expected_ff", keys.get("design__instance__count__class:sequential_cell"), 1377)
     for key in ("design__die__bbox", "design__core__bbox"):
-        v.equal("area.geometry." + key, keys.get(key), contract.get("baseline_geometry", {}).get(key))
+        actual = keys.get(key)
+        if actual in ("<absent>", "<absent from metrics>"):
+            actual = None
+        v.equal("area.geometry." + key, actual, contract.get("baseline_geometry", {}).get(key))
     observed, computed = routed.get("utilization_percent"), routed.get("utilization_percent_recomputed")
     v.finite("area.routed.recomputed_utilization", computed, 0.000001)
     if all(isinstance(x, (int, float)) and math.isfinite(x) for x in (observed, computed)):
@@ -399,7 +405,12 @@ def check(run_dir, contract, timing_path=None, pin_label_path=None):
         if data is not None:
             rtl_hashes[path] = digest(data)
             v.equal("identity.hosted_rtl_manifest." + path, digest(data), manifest.get(path))
-    check_identity(v, analysis, contract, resolved, rtl_hashes)
+    metadata_path = run_dir / "run.json"
+    api_run = {}
+    if metadata_path.is_file():
+        metadata, _ = raw.inputs.read_disk(metadata_path, "strict acceptance authoritative API run/attempt identity")
+        api_run = json.loads(metadata)
+    check_identity(v, analysis, contract, resolved, rtl_hashes, api_run=api_run)
     mapped, _ = raw.latest("yosys-synthesis", resolved.get("DESIGN_NAME", "UNKNOWN") + ".nl.v")
     v.equal("identity.synthesis_netlist", digest(mapped) if mapped is not None else None, contract.get("synthesis_netlist_sha256"))
     check_area(v, analysis, contract)

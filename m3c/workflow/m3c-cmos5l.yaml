@@ -109,16 +109,53 @@ jobs:
           CANDIDATE: m3c-${{ inputs.case }}
         run: |
           mkdir -p supplemental
-          cp "$PDK_ROOT/ihp-sg13cmos5l/libs.tech/klayout/tech/sg13cmos5l.lyp" supplemental/
-          cp "$PDK_ROOT/ihp-sg13cmos5l/libs.tech/klayout/tech/sg13cmos5l.map" supplemental/
-          cp tt/precheck/tech-files/pin_label_purposes_overlapping_drawing.rb.drc supplemental/
-          python m3c/scripts/check_pin_labels.py \
+          # The CLI records INCOMPLETE even when upstream stopped before
+          # providing a submission, installing dependencies, or setting PDK_ROOT.
+          pin_label_exit=0
+          python3 m3c/scripts/check_pin_labels.py \
             --gds tt_submission/tt_um_joshua_vernazza_pinscript.gds \
             --lef tt_submission/tt_um_joshua_vernazza_pinscript.lef \
-            --pdk-root "$PDK_ROOT" --output supplemental/pin-label.json \
+            --pdk-root "${PDK_ROOT:-/home/runner/pdk}" --output supplemental/pin-label.json \
             --fixture-self-test supplemental/pin-label-fixtures.json \
             --candidate "$CANDIDATE" --run-id "$GITHUB_RUN_ID" \
-            --run-attempt "$GITHUB_RUN_ATTEMPT" --source-sha "$GITHUB_SHA"
+            --run-attempt "$GITHUB_RUN_ATTEMPT" --source-sha "$GITHUB_SHA" || pin_label_exit=$?
+          python3 - <<'PY'
+          import importlib.util
+          import json
+          import os
+          from pathlib import Path
+          output = Path("supplemental")
+          report_path = output / "pin-label.json"
+          if not report_path.exists():
+              report_path.write_text(json.dumps({
+                  "schema_version": 1, "status": "INCOMPLETE",
+                  "identity": {"run_id": os.getenv("GITHUB_RUN_ID"),
+                               "run_attempt": os.getenv("GITHUB_RUN_ATTEMPT"),
+                               "candidate": os.getenv("CANDIDATE"), "source_sha": os.getenv("GITHUB_SHA")},
+                  "evaluated_object_count": 0,
+                  "incomplete_reasons": ["Pin-label checker did not produce a result; inspect step log"],
+              }, indent=2) + "\n")
+          fixtures_path = output / "pin-label-fixtures.json"
+          if not fixtures_path.exists():
+              report = json.loads(report_path.read_text())
+              tech = Path(os.getenv("PDK_ROOT") or "/home/runner/pdk") / "ihp-sg13cmos5l/libs.tech/klayout/tech"
+              unavailable = (importlib.util.find_spec("klayout") is None or
+                             any(not (tech / name).is_file() for name in ("sg13cmos5l.lyp", "sg13cmos5l.map")))
+              fixtures_path.write_text(json.dumps({
+                  "schema_version": 1, "status": "INCOMPLETE",
+                  "execution_status": "NOT RUN" if unavailable else "INCOMPLETE",
+                  "test_count": 0 if unavailable else None, "skipped": 0 if unavailable else None, "tests": [],
+                  "incomplete_reasons": [report.get("fixture_validation", {}).get(
+                      "error", "Fixture prerequisites unavailable; no completed fixture summary")],
+              }, indent=2) + "\n")
+          PY
+          for source in \
+            "${PDK_ROOT:-/home/runner/pdk}/ihp-sg13cmos5l/libs.tech/klayout/tech/sg13cmos5l.lyp" \
+            "${PDK_ROOT:-/home/runner/pdk}/ihp-sg13cmos5l/libs.tech/klayout/tech/sg13cmos5l.map" \
+            tt/precheck/tech-files/pin_label_purposes_overlapping_drawing.rb.drc; do
+            if [ -f "$source" ]; then cp "$source" supplemental/; fi
+          done
+          exit "$pin_label_exit"
       - name: Retain supplemental checks independently of their verdict
         if: always()
         uses: actions/upload-artifact@v7

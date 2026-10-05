@@ -15,7 +15,20 @@ The current manual workflow `.github/workflows/m3c-cmos5l.yaml` selects only
 `cts-only`. The candidate starts from the completed as-is source/configuration
 and adds exactly `CTS_SINK_CLUSTERING_SIZE=6`. It retains the as-is long-wire
 setting (resolved 0) and both jumper-only antenna settings (resolved false).
-Production configuration remains unchanged pending measured acceptance.
+Production configuration remains unchanged. The single authorized run
+`37343495633` (public `74f50f7`, attempt 1) failed before CTS in the new timing
+report hook. The hook used OpenSTA path handles after `report_checks` invalidated
+them. The local source fix reacquires handles before use and has a regression
+that rejects the preserved failed export; native validation is NOT RUN.
+No final candidate checks or adoption were possible from that run.
+
+A second, separately authorized export carries the fixed hook. Its manual
+workflow `.github/workflows/m3c-timing-replay.yaml` first replays the hook with
+standalone OpenSTA in the pinned image against the retained routed states of
+`as-is` and `repair` (report-only: no synthesis, placement or routing). Only if
+that replay reproduces the historical reports and completes at every corner is
+one more `cts-only` implementation dispatched, with the same single
+configuration difference. No further retry or sweep is authorized.
 
 Historical cases:
 
@@ -51,5 +64,5 @@ is reserved for the same run's acceptance job collecting completed dependencies.
 
 The exact source export is bound by `SOURCE_MANIFEST.sha256`; its acceptance
 contract carries the completed as-is resolved settings, RTL hashes, pinned
-tools, container, PDK and Liberty signatures. One authorized candidate run is
+tools, container, PDK and Liberty signatures. Each authorized candidate run is
 an experiment, not an authorization for retries or a parameter sweep.

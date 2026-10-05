@@ -1,0 +1,70 @@
+name: M3C timing replay
+run-name: M3C report-only timing replay / ${{ github.sha }}
+
+# Report-only validation of the M3C STA hook on the pinned CMOS5L tools against
+# the retained routed timing states of completed runs 37313216627 (as-is) and
+# 37313220214 (repair). No synthesis, placement, routing or GDS. Standalone
+# OpenSTA in the pinned LibreLane image, --network none, read-only inputs.
+# Manual dispatch only; no Pages, deployments, larger runners or write permissions.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: m3c-timing-replay
+  cancel-in-progress: false
+
+jobs:
+  replay:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      LIBRELANE_IMAGE: ghcr.io/librelane/librelane@sha256:f454022a9bd73f8b2f2208d3cc4a262ad7e95674780b85fa830c8bbc5b8dd542
+      PDK_ROOT: /home/runner/pdk
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Verify the M3C source manifest
+        run: (cd m3c && sha256sum -c SOURCE_MANIFEST.sha256)
+      - name: Check out the pinned tt-gds-action for its PDK installer
+        uses: actions/checkout@v6
+        with:
+          repository: TinyTapeout/tt-gds-action
+          ref: 3412659307918422f3f0727917cf9b499aaca588
+          path: tt-gds-action
+          persist-credentials: false
+      - name: Install the pinned ihp-sg13cmos5l PDK (same script and revision as implementation)
+        run: bash tt-gds-action/install_sg13cmos5l.sh
+      - name: Pull the pinned LibreLane image by digest
+        run: docker pull "$LIBRELANE_IMAGE"
+      - name: Report-only STA replay of the two retained routed states
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p historical-timing
+          python3 - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          image = json.loads(subprocess.check_output(["docker", "image", "inspect", os.environ["LIBRELANE_IMAGE"]]))
+          Path("historical-timing/replay-identity.json").write_text(json.dumps({
+              "repository": os.environ["GITHUB_REPOSITORY"], "source_sha": os.environ["GITHUB_SHA"],
+              "run_id": os.environ["GITHUB_RUN_ID"], "attempt": os.environ["GITHUB_RUN_ATTEMPT"],
+              "image_reference": os.environ["LIBRELANE_IMAGE"], "image_id": image[0]["Id"],
+              "pdk_sources": Path(os.environ["PDK_ROOT"], "ihp-sg13cmos5l/SOURCES").read_text().strip(),
+              "scope": "report-only historical STA replay; not an implementation run"}, indent=2) + "\n")
+          PY
+          python3 m3c/scripts/replay_timing.py --out historical-timing \
+            --scratch .m3c-timing-replay-scratch \
+            --pdk-root "$PDK_ROOT" --image "$LIBRELANE_IMAGE"
+      - name: Retain the replay even on failure
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: m3c-timing-replay-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 30
+          if-no-files-found: error
+          path: historical-timing/

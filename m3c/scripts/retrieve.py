@@ -27,6 +27,22 @@ def gh(*args, capture=True):
     return result.stdout
 
 
+def job_log(job_id):
+    """Save raw logs as evidence, never render their terminal control bytes.
+
+    New hosted gh versions reject ANSI-containing API responses by default;
+    older installed gh versions do not implement the opt-in flag. Retry this
+    read-only request only for that precise compatibility diagnostic.
+    """
+    command = ["gh", "api", f"repos/{REPO}/actions/jobs/{job_id}/logs"]
+    result = subprocess.run(command, text=True, capture_output=True)
+    if result.returncode and "pass --allow-escape-sequences to output it anyway" in result.stderr:
+        result = subprocess.run(command + ["--allow-escape-sequences"], text=True, capture_output=True)
+    if result.returncode:
+        raise SystemExit(f"job {job_id} log download failed: {result.stderr}")
+    return result.stdout
+
+
 def digest_file(path):
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -95,7 +111,7 @@ def main():
             continue
         # gh run view --log rejects an in-progress enclosing run, even for a
         # completed dependency. The job-log endpoint supports this use case.
-        text = gh("api", f"repos/{REPO}/actions/jobs/{job['databaseId']}/logs")
+        text = job_log(job["databaseId"])
         safe_name = re.sub(r"[^A-Za-z0-9_.-]", "_", job["name"])
         (logs / f"{safe_name}-{job['databaseId']}.log").write_text(text)
     artifacts = out / "artifacts"

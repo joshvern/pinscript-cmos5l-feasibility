@@ -60,7 +60,7 @@ def get(node, *keys, default=UNAVAILABLE):
 
 
 class ArtifactView:
-    """The gds job's own artifact (evidence/ + runs/wokwi/final): an extracted folder or the original zip."""
+    """The implementation job's evidence artifact, including a retained failed run."""
 
     def __init__(self, label: str, folder: Path | None = None, archive: Path | None = None):
         self.label, self.folder, self.archive = label, folder, archive
@@ -83,16 +83,21 @@ class ArtifactView:
 
 
 def gds_artifact(run_dir: Path) -> ArtifactView | None:
-    """Exactly one artifact holding evidence/ and runs/wokwi/final/metrics.json (folder or zip)."""
+    """Find unique implementation provenance even when the flow never reached final/.
+
+    Final metrics remain required by their individual consumers. Requiring them
+    here hid valid source/configuration identity for an early failed run.
+    """
     found = []
-    for metrics in (run_dir / "artifacts").glob("*/runs/wokwi/final/metrics.json"):
-        folder = metrics.parents[3]                      # <artifact>/runs/wokwi/final/metrics.json
-        if (folder / "evidence").is_dir():
+    required = {"evidence/run-identity.json", "runs/wokwi/resolved.json"}
+    for identity in (run_dir / "artifacts").glob("*/evidence/run-identity.json"):
+        folder = identity.parents[1]
+        if all((folder / member).is_file() for member in required):
             found.append(ArtifactView(rel(folder), folder=folder))
     for archive in sorted((run_dir / "artifacts").glob("*.zip")):
         with zipfile.ZipFile(archive) as z:
             names = set(z.namelist())
-        if "runs/wokwi/final/metrics.json" in names and any(n.startswith("evidence/") for n in names):
+        if required <= names:
             found.append(ArtifactView(rel(archive), archive=archive))
     return found[0] if len(found) == 1 else None
 
@@ -223,8 +228,8 @@ def warnings(run_dir: Path) -> dict:
 
 def overflow_metrics(run_dir: Path) -> dict:
     artifact = gds_artifact(run_dir)
-    if not artifact:
-        return {"status": UNAVAILABLE}
+    if not artifact or not artifact.exists("runs/wokwi/final/metrics.json"):
+        return {"status": UNAVAILABLE, "reason": "final metrics required"}
     metrics = json.loads(artifact.read("runs/wokwi/final/metrics.json"))
     keys = {k: v for k, v in metrics.items() if re.search(r"overflow|congestion", k)}
     return keys or {"status": "no overflow/congestion keys in final/metrics.json (see the global-routing log excerpt)"}
@@ -463,9 +468,11 @@ def main() -> None:
 
 
 def fmt(value, digits=6):
+    if value is None or (isinstance(value, str) and value.startswith("<absent")):
+        return UNAVAILABLE
     if isinstance(value, float):
         return f"{value:.{digits}f}"
-    return "—" if value is None else str(value)
+    return str(value)
 
 
 def markdown(comparison: dict) -> str:
@@ -476,6 +483,8 @@ def markdown(comparison: dict) -> str:
     sep = "| --- |" + " --- |" * len(names)
 
     def table(rows):
+        if lines and lines[-1]:
+            lines.append("")
         lines.extend([header, sep] + [f"| {label} | " + " | ".join(fmt(v) for v in values) + " |" for label, values in rows] + [""])
 
     prov = {n: cases[n]["provenance"] for n in names}
@@ -489,9 +498,11 @@ def markdown(comparison: dict) -> str:
     diff = comparison.get("resolved_config_diff", {})
     if "differing_keys" in diff:
         lines.append(f"Resolved configuration: {diff['keys_compared']} keys compared; differing keys:")
+        lines.append("")
         lines.extend([f"- `{k}`: {v[names[0]]!r} → {v[names[1]]!r}" for k, v in diff["differing_keys"].items()] + [""])
     for name, difference in comparison.get("resolved_config_diffs_from_baseline", {}).items():
         lines.append(f"Resolved configuration vs {names[0]}: {name} ({difference.get('keys_compared', UNAVAILABLE)} keys).")
+        lines.append("")
         lines.extend(f"- `{key}`: {values[names[0]]!r} → {values[name]!r}"
                      for key, values in difference.get("differing_keys", {}).items())
         lines.append("")
@@ -511,7 +522,7 @@ def markdown(comparison: dict) -> str:
         for kind, key, count in (("setup", "worst_setup_slack_ns", "setup_violating_endpoints"),
                                  ("hold", "worst_hold_slack_ns", "hold_violating_endpoints")):
             rows.append((f"{CORNER_LABEL[corner]} {kind}", [f"{fmt(get(cases[n]['timing'], corner, key))} "
-                                                             f"({get(cases[n]['timing'], corner, count)})" for n in names]))
+                                                             f"({fmt(get(cases[n]['timing'], corner, count))})" for n in names]))
     table(rows)
     lines.append("## Internal register paths: OpenSTA report_clock_min_period (post-PnR, port paths excluded)")
     rows = []
@@ -549,6 +560,8 @@ def markdown(comparison: dict) -> str:
     lines.append("## Precheck and functional gate tests")
     table([("precheck", [f"{get(cases[n]['precheck'], 'overall')} ({get(cases[n]['precheck'], 'overall_basis')})" for n in names]),
            ("gate tests", [f"{get(cases[n]['gate_tests'], 'overall')} ({get(cases[n]['gate_tests'], 'overall_basis')})" for n in names])])
+    lines.extend(["Job failure alone does not establish a failed functional test case. "
+                  "Missing test reports remain incomplete; check run step metadata and retained logs for execution status.", ""])
     lines.append("## Project acceptance and required supplemental coverage")
     table([(label, [get(cases[n], key, 'status') for n in names]) for label, key in (
         ("Strict project acceptance", "project_acceptance"),

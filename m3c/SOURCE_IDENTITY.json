@@ -1,7 +1,7 @@
 {
-  "local_revision": "cfec5530a2cd336f4bfd820ee8fca03a921ad360",
+  "local_revision": "437b13977f195bca54e17c6a795d8f4c824caf2b",
   "local_dirty": true,
-  "local_dirty_path_count": 3,
+  "local_dirty_path_count": 1,
   "production_source_sha256": {
     "src/project.v": "b20eb77abbddd83b4602dc5b264cf893d7c644111424672fd7fa5d5bef7e24fc",
     "src/pinscript_spi_cfg.v": "bb74224c76854edcd0000d5af18fe5a50a321e6cfddfdfe89b5f273e18b251b6",
@@ -22,7 +22,9 @@
       "report_only": [
         "STA hook endpoint corrections",
         "strict project acceptance",
-        "CMOS5L supplemental pin-label rule"
+        "CMOS5L supplemental pin-label rule",
+        "STA hook PathEnd lifetime fix after failed run 37343495633",
+        "report-only historical timing replay workflow"
       ]
     }
   },

@@ -213,6 +213,11 @@ namespace eval m3c {
                 continue
             }
             set count [llength $paths]
+            # PathEnd objects belong to OpenSTA's Search PathGroups and are
+            # deleted by the next path search (pinned Search.cc, findPathEnds).
+            # Keep only the scalar count across report_checks, which searches
+            # again internally. Tcl catch cannot catch a stale-pointer SIGSEGV.
+            unset paths
             if {$requirement eq "NOT_APPLICABLE"} {
                 if {$count} {
                     puts "status=INCOMPLETE path_count=$count reason=unexpected_optional_connection"
@@ -232,7 +237,12 @@ namespace eval m3c {
             puts "%OL_END_REPORT"
             puts "%OL_CREATE_REPORT m3c-${label}-${delay}-points.rpt"
             puts "schema=pinscript-timing-points/2 corner=$::env(_CURRENT_CORNER_NAME) delay=$delay path_count=$count"
-            if {[catch {points $paths} error]} {puts "INCOMPLETE: path-point API: $error"}
+            if {[catch {
+                set paths [find_timing_paths {*}$selectors -group_path_count 8]
+                if {[llength $paths] != $count} {error "path count changed between identical queries"}
+                points $paths
+                unset paths
+            } error]} {puts "INCOMPLETE: path-point API: $error"}
             puts "%OL_END_REPORT"
         }
     }

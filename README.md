@@ -33,3 +33,9 @@ The PDK's default violation checker selects typical timing; a green workflow
 alone does not prove slow/fast closure. Use actual resolved core geometry and
 mapped areas, never generic gate counts as an ASIC area estimate. Retain failed
 runs. Functional gate tests are untimed and are not timing simulation.
+
+Live candidates add `STA_EXTRA_CORNER_TCL_FILE` for report-only PC, memory,
+control, output-state and fetch-capture path queries. This hook changes no
+timing constraints or implementation. The baseline uses the original M1
+configuration unchanged and the standard flow timing reports. Missing named
+groups or unsupported report APIs are explicitly recorded as UNAVAILABLE.

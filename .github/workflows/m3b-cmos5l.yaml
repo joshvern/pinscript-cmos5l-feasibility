@@ -14,7 +14,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: m3b-cmos5l
+  group: m3b-cmos5l-${{ inputs.candidate }}
   cancel-in-progress: false
 
 jobs:

@@ -13,7 +13,9 @@ port selection. Shared READ_DATA is zero while running; status and STOP remain
 available independently. This experiment contract does not change production M1.
 
 The workflow is `.github/workflows/m3b-cmos5l.yaml`, accepts one candidate per
-dispatch, and serializes runs. It uses the official CMOS5L GDS action plus its
+dispatch, and serializes repeated runs of the same candidate. Different
+candidates may run concurrently; their artifacts are scoped to separate run IDs.
+It uses the official CMOS5L GDS action plus its
 precheck and functional gate-test actions. There are no automatic push triggers
 and no viewer/Pages publication. Standard public `ubuntu-24.04` runners only;
 no paid runners or local installation. Action artifacts contain public source,

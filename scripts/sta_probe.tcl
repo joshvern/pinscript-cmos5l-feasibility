@@ -25,7 +25,7 @@ namespace eval m3b {
         set expressions [dict create \
             pc {(^|[./])pc(\[[0-9]+\])?$} \
             memory {(^|[./])memory\[[0-9]+\](\[[0-9]+\])?$} \
-            output {(^|[./])output_state(\[[0-9]+\])?$} \
+            output {(^|[./])(output_state|uio_out)(\[[0-9]+\])?$} \
             captured_word {(^|[./])captured_word(\[[0-9]+\])?$} \
             captured_pc {(^|[./])captured_pc(\[[0-9]+\])?$} \
             captured_next_pc {(^|[./])captured_next_pc(\[[0-9]+\])?$} \
@@ -157,27 +157,28 @@ namespace eval m3b {
         }
     }
 
-    proc report_pair {label from_pins to_pins} {
+    proc report_pair {label from_pins to_pins {via_nets {}} {require_via 0}} {
         foreach delay {max min} {
             puts "%OL_CREATE_REPORT m3b-${label}-${delay}.rpt"
             puts "corner=$::env(_CURRENT_CORNER_NAME) delay=$delay launch_Q=[llength $from_pins] capture_D=[llength $to_pins]"
-            if {![llength $from_pins] || ![llength $to_pins]} {
+            if {![llength $from_pins] || ![llength $to_pins] || ($require_via && ![llength $via_nets])} {
                 puts "UNAVAILABLE: source or endpoint group absent; expected for engine-only groups in baseline. Inspect register inventory."
                 puts "%OL_END_REPORT"
                 continue
             }
             # Q pins are through-points on paths launched by their owning FFs.
             # This includes real launch clock and clk-to-Q timing, with D endpoints.
-            report_checks -through $from_pins -to $to_pins -path_delay $delay \
-                -sort_by_slack -group_path_count 32 -endpoint_path_count 2 \
+            set selectors [list -through $from_pins]
+            if {[llength $via_nets]} {lappend selectors -through $via_nets}
+            lappend selectors -to $to_pins -path_delay $delay \
+                -sort_by_slack -endpoint_path_count 2 -corner $::env(_CURRENT_CORNER_NAME)
+            report_checks {*}$selectors -group_path_count 32 \
                 -fields {slew cap input net fanout} -format full_clock_expanded \
-                -digits 6 -corner $::env(_CURRENT_CORNER_NAME)
+                -digits 6
             puts "%OL_END_REPORT"
             puts "%OL_CREATE_REPORT m3b-${label}-${delay}-points.rpt"
             if {[catch {
-                set paths [find_timing_paths -through $from_pins -to $to_pins \
-                    -path_delay $delay -sort_by_slack -group_path_count 8 \
-                    -endpoint_path_count 2 -corner $::env(_CURRENT_CORNER_NAME)]
+                set paths [find_timing_paths {*}$selectors -group_path_count 8]
                 if {![llength $paths]} {puts "UNAVAILABLE: no constrained timing paths for selected groups"}
                 points $paths
             } error]} {puts "UNAVAILABLE: path-point API: $error"}
@@ -204,6 +205,16 @@ namespace eval m3b {
         } {
             report_pair ${source}-to-${destination} \
                 [dict get $selected $source q] [dict get $selected $destination d]
+        }
+        set fetch_nets [get_nets -quiet -hierarchical *fetch_word*]
+        puts "%OL_CREATE_REPORT m3b-fetch-net-inventory.rpt"
+        puts "corner=$::env(_CURRENT_CORNER_NAME)"
+        foreach net $fetch_nets {puts [name_of $net]}
+        if {![llength $fetch_nets]} {puts "UNAVAILABLE: fetch-word alias absent; expected in baseline, otherwise inspect mapped aliases"}
+        puts "%OL_END_REPORT"
+        foreach destination {pc output captured_word} {
+            report_pair pc-through-fetch-to-${destination} \
+                [dict get $selected pc q] [dict get $selected $destination d] $fetch_nets 1
         }
     }
 }

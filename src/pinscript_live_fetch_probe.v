@@ -314,9 +314,9 @@ module pinscript_live_fetch_probe #(
     wire start_accept = start_request && !run && program_valid && !loading;
     wire stop_request = write_strobe && reg_address == 8'h04 && write_data == 16'd6;
     wire fetch_valid = program_valid && ({9'b0, pc} < loaded_count);
-    wire [15:0] fetch_word = SHARED_READ_PORT ? store_read_data : store_fetch_data;
-    wire [15:0] memory_read_address = (SHARED_READ_PORT && run) ? {9'b0, pc} : host_read_address;
-    wire [15:0] host_read_data = (SHARED_READ_PORT && run) ? 16'b0 : store_read_data;
+    wire [15:0] fetch_word = (SHARED_READ_PORT != 0) ? store_read_data : store_fetch_data;
+    wire [15:0] memory_read_address = ((SHARED_READ_PORT != 0) && run) ? {9'b0, pc} : host_read_address;
+    wire [15:0] host_read_data = ((SHARED_READ_PORT != 0) && run) ? 16'b0 : store_read_data;
     wire known_address = (reg_address <= 8'h0c) ||
                          (reg_address >= 8'h10 && reg_address <= 8'h16);
 
@@ -338,7 +338,7 @@ module pinscript_live_fetch_probe #(
         .expected_length(expected_length), .loaded_count(loaded_count),
         .loading(loading), .program_valid(program_valid),
         .read_address(memory_read_address), .read_data(store_read_data),
-        .fetch_address(SHARED_READ_PORT ? 16'b0 : {9'b0, pc}),
+        .fetch_address((SHARED_READ_PORT != 0) ? 16'b0 : {9'b0, pc}),
         .fetch_data(store_fetch_data),
         .error_valid(store_error_valid), .error_code(store_error_code)
     );
@@ -398,7 +398,7 @@ module pinscript_live_fetch_probe #(
         read_data = 16'b0;
         case (reg_address)
             8'h00: read_data = 16'h4c46; // LF: deliberately not M1 DEVICE_ID
-            8'h01: read_data = SHARED_READ_PORT ? 16'hb002 : 16'hb001;
+            8'h01: read_data = (SHARED_READ_PORT != 0) ? 16'hb002 : 16'hb001;
             8'h02: read_data = {12'b0, (sticky_error != 0), run, loading, program_valid};
             8'h03: read_data = scratch;
             8'h05: read_data = {12'b0, sticky_error};

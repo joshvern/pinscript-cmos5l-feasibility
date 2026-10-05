@@ -1,0 +1,46 @@
+; Bounded four-phase request/acknowledge handshake with retries and a stop record
+; (PinScript ISA candidate v0.1). A general pin handshake, not a protocol controller.
+; REQ (pin 4) is open drain with an external pull-up: the engine pulls it low to
+; request and releases it afterwards. ACK (pin 5) is an input with an external pull-up.
+; Responder contract (assumed, not enforced):
+;   R1 ACK is idle released (high) and is pulled low only in response to REQ low.
+;   R2 Once ACK is asserted it stays low until the responder observes REQ released,
+;      then it is released within ACK_TIMEOUT cycles.
+;   R3 A responder may still assert a late ACK after a timed-out request was withdrawn
+;      (a reaction already in flight); it then releases it under R2.
+;   R4 The responder may keep REQ low for a while after the engine releases it
+;      (busy extension); a released open-drain REQ is then observed low, never high.
+; Accounted guard: before every request the program waits (bounded) for ACK to read
+; high, so a stale or late ACK is never accepted as the answer to a new request.
+; Residual assumption: a late ACK must not start in the four pad cycles between the
+; last pad cycle the idle check sampled and the first cycle a genuine response can
+; appear (synchronizer latency plus the CLR/LDT instructions). Under R3 this holds
+; when BACKOFF exceeds the responder's reaction time.
+.param ACK_TIMEOUT, 100      ; ACK sampled in ACK_TIMEOUT+1 consecutive cycles
+.param RELEASE_TIMEOUT, 50   ; budget for REQ to read high after release
+.param IDLE_TIMEOUT, 200     ; budget for ACK to read high before a request
+.param ATTEMPTS, 3
+.param BACKOFF, 20
+.pin REQ, 4
+.pin ACK, 5
+
+        SET REQ                 ; OUT=1: released once open drain is enabled
+        OPENDRAIN REQ
+        DRIVE REQ
+        LD R0, ATTEMPTS
+attempt:
+        LDT IDLE_TIMEOUT
+        WAIT HI(ACK), FAULT     ; never request while ACK still reads low
+        CLR REQ                 ; pull REQ low: request
+        LDT ACK_TIMEOUT
+        WAIT LO(ACK), retry     ; acknowledge within the budget, else retry
+        SET REQ                 ; release REQ
+        LDT RELEASE_TIMEOUT
+        WAIT HI(REQ), FAULT     ; REQ must really rise: WAIT_TIMEOUT if held low
+        LDT ACK_TIMEOUT
+        WAIT HI(ACK), FAULT     ; responder must release ACK
+        HALT
+retry:  SET REQ                 ; withdraw the request
+        DELAY BACKOFF
+        DJNZ R0, attempt
+        FAULT 1                 ; no acknowledge after ATTEMPTS requests

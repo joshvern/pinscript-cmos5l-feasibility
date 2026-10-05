@@ -1,0 +1,25 @@
+; UART 8N1 transmitter fed by the TX FIFO (PinScript ISA candidate v0.1).
+; Pin 0 = TX, push-pull, idle high; the environment needs a pull-up because START
+; and every stop release the pin. Each byte is LSB first with one start and one
+; stop bit. While TX data is available every bit lasts exactly BIT_CYCLES cycles:
+;   data bit:  SHOUT (1) + DELAY BIT_CYCLES-3 (BIT_CYCLES-2) + DJNZ (1)
+;   start bit: CLR (edge) + DELAY BIT_CYCLES-3 + LD + SHOUT (edge)
+;   stop bit:  SET (edge) + DELAY BIT_CYCLES-4 + JMP + PULL + CLR (edge)
+; An empty TX FIFO stalls PULL with the line idle high. The first start bit is
+; preceded by BIT_CYCLES cycles of driven idle-high (DELAY after DRIVE).
+.param BIT_CYCLES, 87        ; 10 MHz / 115200 = 86.81 -> 87; -D BIT_CYCLES=1042 for 9600 baud
+.pin TX, 0
+
+        SET TX                  ; OUT=1 before enabling the driver (no glitch)
+        DRIVE TX
+        DELAY BIT_CYCLES - 3    ; one bit time of idle-high before the first frame
+next:   PULL                    ; SR <- next byte; stalls while the TX FIFO is empty
+        CLR TX                  ; start bit
+        DELAY BIT_CYCLES - 3
+        LD R0, 8
+bit:    SHOUT TX, LSB           ; TX <- SR[0], then SR >>= 1
+        DELAY BIT_CYCLES - 3
+        DJNZ R0, bit
+        SET TX                  ; stop bit
+        DELAY BIT_CYCLES - 4
+        JMP next

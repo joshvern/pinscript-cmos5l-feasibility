@@ -1,0 +1,111 @@
+name: M3C integrated CMOS5L
+run-name: M3C ${{ inputs.case }} / ${{ github.sha }}
+
+# Integrated PinScript M3C engine (production RTL) on the official CMOS5L flow.
+# Manual dispatch only. No push/pull_request triggers, viewer, Pages,
+# deployments, self-hosted/larger runners or write permissions.
+on:
+  workflow_dispatch:
+    inputs:
+      case:
+        description: Production config unchanged, or the focused electrical-repair config
+        required: true
+        type: choice
+        options: [as-is, repair]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: m3c-cmos5l-${{ inputs.case }}
+  cancel-in-progress: false
+
+jobs:
+  gds:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    env:
+      LIBRELANE_IMAGE_OVERRIDE: ghcr.io/librelane/librelane@sha256:f454022a9bd73f8b2f2208d3cc4a262ad7e95674780b85fa830c8bbc5b8dd542
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Verify the M3C source manifest and select the case
+        env:
+          CASE: ${{ inputs.case }}
+        run: |
+          (cd m3c && sha256sum -c SOURCE_MANIFEST.sha256)
+          case "$CASE" in as-is|repair) ;; *) exit 2 ;; esac
+          rm -rf src test info.yaml
+          cp -r m3c/src src
+          cp "m3c/cases/$CASE/info.yaml" info.yaml
+          cp "m3c/cases/$CASE/config.json" src/config.json
+          cp -r m3c/scripts scripts-m3c
+          mkdir -p docs && cp m3c/docs/info.md docs/info.md
+      - name: Official CMOS5L implementation
+        id: implementation
+        uses: TinyTapeout/tt-gds-action@3412659307918422f3f0727917cf9b499aaca588
+        with:
+          pdk: ihp-sg13cmos5l
+          tools-ref: d66cf179e7bc4d296362ab7e2e3b344dc3c4f665
+          librelane-version: 3.1.0.dev3
+      - name: Record resolved flow and reports, including failures
+        if: always()
+        env:
+          CANDIDATE: m3c-${{ inputs.case }}
+          IMPLEMENTATION_OUTCOME: ${{ steps.implementation.outcome }}
+        run: python3 scripts-m3c/collect_evidence.py
+      - name: Retain complete implementation evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: m3c-${{ inputs.case }}-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            evidence/
+            runs/wokwi/
+            src/
+            info.yaml
+            m3c/SOURCE_IDENTITY.json
+            m3c/SOURCE_MANIFEST.sha256
+
+  precheck:
+    needs: gds
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: TinyTapeout/tt-gds-action/precheck@3412659307918422f3f0727917cf9b499aaca588
+        with:
+          tools-ref: d66cf179e7bc4d296362ab7e2e3b344dc3c4f665
+
+  gl_test:
+    needs: gds
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Select the M3C functional gate tests (UDP models included)
+        env:
+          CASE: ${{ inputs.case }}
+        run: |
+          case "$CASE" in as-is|repair) ;; *) exit 2 ;; esac
+          cp "m3c/cases/$CASE/info.yaml" info.yaml
+          rm -rf test && cp -r m3c/gate-tests test
+      - uses: TinyTapeout/tt-gds-action/gl_test@3412659307918422f3f0727917cf9b499aaca588
+        with:
+          test-dir: test
+      - name: Reject missing, skipped, or failed tests
+        run: python3 m3c/scripts/check_results.py --expect "$(cat test/expected-count.txt)" --forbid-skips test/results.xml
+      - name: Retain gate-test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: m3c-gl-${{ inputs.case }}-${{ github.run_id }}
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            test/results.xml
+            test/Makefile

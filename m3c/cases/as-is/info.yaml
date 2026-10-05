@@ -1,0 +1,44 @@
+project:
+  title: PinScript
+  author: Joshua Vernazza
+  discord: ''
+  description: 'Reprogrammable pin-protocol engine: 64-word program, SPI-loaded'
+  language: Verilog
+  clock_hz: 10000000
+  tiles: 6x4
+  top_module: tt_um_joshua_vernazza_pinscript
+  source_files:
+  - project.v
+  - pinscript_spi_cfg.v
+  - pinscript_core.v
+  - pinscript_registers.v
+  - pinscript_program_store.v
+  - pinscript_fifo.v
+  - pinscript_engine.v
+  - pinscript_decode.v
+pinout:
+  ui[0]: CFG_SCLK
+  ui[1]: CFG_MOSI
+  ui[2]: CFG_CS_n
+  ui[3]: ''
+  ui[4]: ''
+  ui[5]: ''
+  ui[6]: ''
+  ui[7]: ''
+  uo[0]: CFG_MISO (dedicated output)
+  uo[1]: ENGINE_RUNNING
+  uo[2]: CFG_ERROR
+  uo[3]: RX_AVAILABLE
+  uo[4]: ENGINE_FAULT (stopped, reason >= 3)
+  uo[5]: ''
+  uo[6]: ''
+  uo[7]: ''
+  uio[0]: PIN_0 (program-controlled; released at reset/stop)
+  uio[1]: PIN_1 (program-controlled; released at reset/stop)
+  uio[2]: PIN_2 (program-controlled; released at reset/stop)
+  uio[3]: PIN_3 (program-controlled; released at reset/stop)
+  uio[4]: PIN_4 (program-controlled; released at reset/stop)
+  uio[5]: PIN_5 (program-controlled; released at reset/stop)
+  uio[6]: PIN_6 (program-controlled; released at reset/stop)
+  uio[7]: PIN_7 (program-controlled; released at reset/stop)
+yaml_version: 6

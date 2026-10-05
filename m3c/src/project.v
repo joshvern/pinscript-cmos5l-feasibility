@@ -1,0 +1,54 @@
+/*
+ * Copyright (c) 2026 Joshua Vernazza
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+`default_nettype none
+
+// PinScript M3C: configuration SPI, register map / program store, TX/RX FIFOs
+// and the ISA v0.1 execution engine (interface version 2). The historical M1
+// top is preserved under historical/m1/.
+module tt_um_joshua_vernazza_pinscript (
+    input  wire [7:0] ui_in,    // Dedicated inputs
+    output wire [7:0] uo_out,   // Dedicated outputs
+    input  wire [7:0] uio_in,   // IOs: Input path
+    output wire [7:0] uio_out,  // IOs: Output path
+    output wire [7:0] uio_oe,   // IOs: Enable path (active high: 0=input, 1=output)
+    input  wire       ena,      // always 1 when the design is powered, so you can ignore it
+    input  wire       clk,      // clock
+    input  wire       rst_n     // reset_n - low to reset
+);
+
+  wire miso;
+  wire write_strobe, read_strobe;
+  wire [7:0] reg_address;
+  wire [15:0] write_data, read_data;
+  wire transport_error_valid;
+  wire [3:0] transport_error_code;
+  wire running, error_active, rx_available, fault_stopped;
+
+  pinscript_spi_cfg spi_cfg (
+      .clk(clk), .rst_n(rst_n),
+      .spi_sclk(ui_in[0]), .spi_mosi(ui_in[1]), .spi_cs_n(ui_in[2]),
+      .miso(miso), .write_strobe(write_strobe), .read_strobe(read_strobe),
+      .reg_address(reg_address), .write_data(write_data), .read_data(read_data),
+      .error_valid(transport_error_valid), .error_code(transport_error_code)
+  );
+
+  pinscript_core #(.PROGRAM_DEPTH(64)) core (
+      .clk(clk), .rst_n(rst_n),
+      .write_strobe(write_strobe), .read_strobe(read_strobe),
+      .reg_address(reg_address), .write_data(write_data), .read_data(read_data),
+      .transport_error_valid(transport_error_valid),
+      .transport_error_code(transport_error_code),
+      .uio_in(uio_in), .uio_out(uio_out), .uio_oe(uio_oe),
+      .running(running), .error_active(error_active),
+      .rx_available(rx_available), .fault_stopped(fault_stopped)
+  );
+
+  assign uo_out = {3'b0, fault_stopped, rx_available, error_active, running, miso};
+  wire _unused = &{ena, ui_in[7:3], 1'b0};
+
+endmodule
+
+`default_nettype wire

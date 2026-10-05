@@ -1,0 +1,29 @@
+{
+  "local_revision": "5feb505584fb4764a7e577a3fb82493400b0c4b4",
+  "local_dirty": true,
+  "local_dirty_path_count": 34,
+  "production_source_sha256": {
+    "src/project.v": "b20eb77abbddd83b4602dc5b264cf893d7c644111424672fd7fa5d5bef7e24fc",
+    "src/pinscript_spi_cfg.v": "bb74224c76854edcd0000d5af18fe5a50a321e6cfddfdfe89b5f273e18b251b6",
+    "src/pinscript_core.v": "199e0467ea22f7a2af86f22cb6108bd6c94e871cbd3e9ee69e3e5cc14507b80b",
+    "src/pinscript_registers.v": "d5090c30ffb401fe56020a3663c7b5c2d886a1e242218f9ae2c958d41cf6c332",
+    "src/pinscript_program_store.v": "3a98c40a7679a8447c7e90fbf0ebb57ff0373ade621b17052ef364d8f558b469",
+    "src/pinscript_fifo.v": "365cf35048b8b757512c63696fc72824fada278bdd7c160d21c949312299ae2e",
+    "src/pinscript_engine.v": "6f6a018589b6f44fc560718e8a02b3284be39914dee88b51aba177e7bff71015",
+    "src/pinscript_decode.v": "dda6933e89f2a9ec7fa16cf511ac448a97a1faa5710b69f4c3e4e51ffbe6e259"
+  },
+  "production_config_sha256": "4a175aa98951284800bef96cf3441f89f622fa6c3512a68a000257f1dc27ecd4",
+  "cases": {
+    "as-is": "production src/config.json + report-only STA hook",
+    "repair": {
+      "base": "as-is",
+      "added": {
+        "CTS_SINK_CLUSTERING_SIZE": 6,
+        "DESIGN_REPAIR_MAX_WIRE_LENGTH": 300,
+        "GRT_ANTENNA_REPAIR_JUMPER_ONLY": true,
+        "DRT_ANTENNA_REPAIR_JUMPER_ONLY": true
+      }
+    }
+  },
+  "purpose": "M3C integrated engine on the official CMOS5L flow; no hardware run"
+}

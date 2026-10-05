@@ -36,6 +36,13 @@ alone does not prove slow/fast closure. Use actual resolved core geometry and
 mapped areas, never generic gate counts as an ASIC area estimate. Retain failed
 runs. Functional gate tests are untimed and are not timing simulation.
 
+The first baseline gate job failed before simulation because its source list
+omitted the supplied `sg13cmos5l_udp.v` primitive models. Corrected isolated
+test lists include this file explicitly. The manual `m3b-gate-replay.yaml`
+workflow reuses the original run's unmodified `tt_submission` artifact, checks
+its source revision and successful GDS job, records input hashes, then reruns
+the same pinned functional gate action. It does not repeat implementation.
+
 Live candidates add `STA_EXTRA_CORNER_TCL_FILE` for report-only PC, memory,
 control, output-state and fetch-capture path queries. This hook changes no
 timing constraints or implementation. The baseline uses the original M1

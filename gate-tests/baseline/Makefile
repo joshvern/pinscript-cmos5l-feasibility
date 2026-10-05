@@ -1,50 +1,40 @@
-# Makefile
-# See https://docs.cocotb.org/en/stable/quickstart.html for more info
-
-# defaults
-SIM ?= icarus
-export PYTHONDONTWRITEBYTECODE := 1
-FST ?= -fst # Use more efficient FST format
-TOPLEVEL_LANG ?= verilog
+# Export as gate-tests/{baseline,separate,shared}/Makefile with candidate.mk.
+# Standard upstream tools only; no dependency on local WSL/runtime paths.
 TEST_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
-SRC_DIR = $(TEST_DIR)/../src
-PROJECT_SOURCES = project.v pinscript_spi_cfg.v pinscript_registers.v pinscript_program_store.v
-export PYTHONPATH := $(TEST_DIR)/../tools:$(TEST_DIR):$(PYTHONPATH)
-
-ifneq ($(GATES),yes)
-
-# RTL simulation:
-SIM_BUILD				= sim_build/rtl
-VERILOG_SOURCES += $(addprefix $(SRC_DIR)/,$(PROJECT_SOURCES))
-
+include $(TEST_DIR)/candidate.mk
+SIM ?= icarus
+TOPLEVEL_LANG := verilog
+export PINSCRIPT_PROBE_CANDIDATE := $(CANDIDATE)
+export PYTHONDONTWRITEBYTECODE := 1
+export PYTHONPATH := $(TEST_DIR):$(PYTHONPATH)
+ifeq ($(CANDIDATE),baseline)
+TOPLEVEL := tb
+COCOTB_TEST_MODULES := test
 else
-
-# Gate level simulation:
-SIM_BUILD				= sim_build/gl
-COMPILE_ARGS    += -DGL_TEST
-COMPILE_ARGS    += -DFUNCTIONAL
-COMPILE_ARGS    += -DSIM
-VERILOG_SOURCES += $(PDK_ROOT)/ihp-sg13cmos5l/libs.ref/sg13cmos5l_io/verilog/sg13cmos5l_io.v
-VERILOG_SOURCES += $(PDK_ROOT)/ihp-sg13cmos5l/libs.ref/sg13cmos5l_stdcell/verilog/sg13cmos5l_stdcell.v
-
-# this gets copied in by the GDS action workflow
-VERILOG_SOURCES += $(TEST_DIR)/gate_level_netlist.v
-
+TOPLEVEL := tt_um_pinscript_probe_$(CANDIDATE)
+COCOTB_TEST_MODULES := test_probe_pins
 endif
-
-# Allow sharing configuration between design and testbench via `include`:
-COMPILE_ARGS 		+= -I$(SRC_DIR)
-
-# Include the testbench sources:
-VERILOG_SOURCES += $(TEST_DIR)/tb.v
-TOPLEVEL = tb
-
-# List test modules to run, separated by commas and without the .py suffix:
 ifeq ($(GATES),yes)
-COCOTB_TEST_MODULES = test
+SIM_BUILD := sim_build/gl
+COMPILE_ARGS += -DGL_TEST -DFUNCTIONAL -DSIM
+VERILOG_SOURCES := $(PDK_ROOT)/ihp-sg13cmos5l/libs.ref/sg13cmos5l_io/verilog/sg13cmos5l_io.v \
+                   $(PDK_ROOT)/ihp-sg13cmos5l/libs.ref/sg13cmos5l_stdcell/verilog/sg13cmos5l_udp.v \
+                   $(PDK_ROOT)/ihp-sg13cmos5l/libs.ref/sg13cmos5l_stdcell/verilog/sg13cmos5l_stdcell.v \
+                   $(TEST_DIR)/gate_level_netlist.v
 else
-COCOTB_TEST_MODULES = test,test_config
+SIM_BUILD := sim_build/rtl
+ifeq ($(CANDIDATE),baseline)
+VERILOG_SOURCES := $(TEST_DIR)/../src/project.v \
+                   $(TEST_DIR)/../src/pinscript_spi_cfg.v \
+                   $(TEST_DIR)/../src/pinscript_registers.v \
+                   $(TEST_DIR)/../src/pinscript_program_store.v
+else
+VERILOG_SOURCES := $(TEST_DIR)/../src/pinscript_spi_cfg.v \
+                   $(TEST_DIR)/../src/pinscript_program_store.v \
+                   $(TEST_DIR)/../src/pinscript_live_fetch_probe.v
 endif
-
-# include cocotb's make rules to take care of the simulator setup
+endif
+ifeq ($(CANDIDATE),baseline)
+VERILOG_SOURCES += $(TEST_DIR)/tb.v
+endif
 include $(shell cocotb-config --makefiles)/Makefile.sim

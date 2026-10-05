@@ -1,0 +1,76 @@
+name: M3B functional gate replay
+run-name: M3B gate replay ${{ inputs.candidate }} / ${{ github.sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate:
+        description: Reuse the original routed CMOS5L netlist
+        required: true
+        type: choice
+        options: [baseline, separate, shared]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  gl_test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Verify the source implementation run
+        id: source
+        env:
+          CANDIDATE: ${{ inputs.candidate }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha256sum -c SOURCE_MANIFEST.sha256
+          python3 scripts/prepare_gate_replay.py source
+      - name: Download the original physical implementation
+        uses: actions/download-artifact@v7
+        with:
+          name: tt_submission
+          path: replay-input
+          run-id: ${{ steps.source.outputs.run_id }}
+          github-token: ${{ github.token }}
+      - name: Record and verify the unmodified replay input
+        env:
+          CANDIDATE: ${{ inputs.candidate }}
+        run: python3 scripts/prepare_gate_replay.py input
+      - name: Make the original submission available to the pinned gate action
+        uses: actions/upload-artifact@v7
+        with:
+          name: tt_submission
+          path: replay-input/
+          retention-days: 7
+          if-no-files-found: error
+      - name: Select corrected isolated gate test
+        env:
+          CANDIDATE: ${{ inputs.candidate }}
+        run: |
+          case "$CANDIDATE" in baseline|separate|shared) ;; *) exit 2 ;; esac
+          cp -r "gate-tests/$CANDIDATE/." test/
+      - uses: TinyTapeout/tt-gds-action/gl_test@3412659307918422f3f0727917cf9b499aaca588
+        with:
+          test-dir: test
+      - name: Reject missing, skipped, or failed tests
+        run: python3 scripts/check_results.py --expect "$(cat test/expected-count.txt)" --forbid-skips test/results.xml
+      - name: Retain replay provenance and test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: m3b-gate-replay-${{ inputs.candidate }}-${{ github.run_id }}
+          retention-days: 7
+          if-no-files-found: error
+          path: |
+            replay-evidence/
+            test/results.xml
+            test/Makefile
+            SOURCE_MANIFEST.sha256
+
+# Only functional simulation is repeated. No synthesis/P&R, board access,
+# local installation, Pages, or paid runners/features.

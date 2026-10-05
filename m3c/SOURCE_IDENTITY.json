@@ -1,7 +1,7 @@
 {
-  "local_revision": "5feb505584fb4764a7e577a3fb82493400b0c4b4",
+  "local_revision": "cfec5530a2cd336f4bfd820ee8fca03a921ad360",
   "local_dirty": true,
-  "local_dirty_path_count": 34,
+  "local_dirty_path_count": 3,
   "production_source_sha256": {
     "src/project.v": "b20eb77abbddd83b4602dc5b264cf893d7c644111424672fd7fa5d5bef7e24fc",
     "src/pinscript_spi_cfg.v": "bb74224c76854edcd0000d5af18fe5a50a321e6cfddfdfe89b5f273e18b251b6",
@@ -14,15 +14,16 @@
   },
   "production_config_sha256": "4a175aa98951284800bef96cf3441f89f622fa6c3512a68a000257f1dc27ecd4",
   "cases": {
-    "as-is": "production src/config.json + report-only STA hook",
-    "repair": {
-      "base": "as-is",
-      "added": {
-        "CTS_SINK_CLUSTERING_SIZE": 6,
-        "DESIGN_REPAIR_MAX_WIRE_LENGTH": 300,
-        "GRT_ANTENNA_REPAIR_JUMPER_ONLY": true,
-        "DRT_ANTENNA_REPAIR_JUMPER_ONLY": true
-      }
+    "cts-only": {
+      "base": "completed as-is export-01 (37313216627 attempt 1)",
+      "implementation_added": {
+        "CTS_SINK_CLUSTERING_SIZE": 6
+      },
+      "report_only": [
+        "STA hook endpoint corrections",
+        "strict project acceptance",
+        "CMOS5L supplemental pin-label rule"
+      ]
     }
   },
   "purpose": "M3C integrated engine on the official CMOS5L flow; no hardware run"

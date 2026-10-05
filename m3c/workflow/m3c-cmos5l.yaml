@@ -8,13 +8,14 @@ on:
   workflow_dispatch:
     inputs:
       case:
-        description: Production config unchanged, or the focused electrical-repair config
+        description: Single CTS-only candidate (unchanged RTL and as-is repair policies)
         required: true
         type: choice
-        options: [as-is, repair]
+        options: [cts-only]
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: m3c-cmos5l-${{ inputs.case }}
@@ -35,7 +36,7 @@ jobs:
           CASE: ${{ inputs.case }}
         run: |
           (cd m3c && sha256sum -c SOURCE_MANIFEST.sha256)
-          case "$CASE" in as-is|repair) ;; *) exit 2 ;; esac
+          case "$CASE" in cts-only) ;; *) exit 2 ;; esac
           rm -rf src test info.yaml
           cp -r m3c/src src
           cp "m3c/cases/$CASE/info.yaml" info.yaml
@@ -69,18 +70,67 @@ jobs:
             info.yaml
             m3c/SOURCE_IDENTITY.json
             m3c/SOURCE_MANIFEST.sha256
+      - name: Read-only timing replay of the two preserved baselines
+        if: ${{ always() && steps.implementation.outcome == 'success' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts-m3c/replay_timing.py --out historical-timing \
+            --scratch .m3c-timing-replay-scratch \
+            --pdk-root "$PDK_ROOT" --image "$LIBRELANE_IMAGE_OVERRIDE"
+      - name: Retain historical timing replay separately from candidate evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: m3c-historical-timing-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 30
+          if-no-files-found: warn
+          path: historical-timing/
 
   precheck:
     needs: gds
+    if: ${{ always() && needs.gds.result != 'cancelled' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
       - uses: TinyTapeout/tt-gds-action/precheck@3412659307918422f3f0727917cf9b499aaca588
+        id: upstream_precheck
         with:
           tools-ref: d66cf179e7bc4d296362ab7e2e3b344dc3c4f665
+      - name: Supplemental CMOS5L pin-label coverage and sensitivity
+        if: always()
+        id: pin_labels
+        continue-on-error: true
+        env:
+          CANDIDATE: m3c-${{ inputs.case }}
+        run: |
+          mkdir -p supplemental
+          cp "$PDK_ROOT/ihp-sg13cmos5l/libs.tech/klayout/tech/sg13cmos5l.lyp" supplemental/
+          cp "$PDK_ROOT/ihp-sg13cmos5l/libs.tech/klayout/tech/sg13cmos5l.map" supplemental/
+          cp tt/precheck/tech-files/pin_label_purposes_overlapping_drawing.rb.drc supplemental/
+          python m3c/scripts/check_pin_labels.py \
+            --gds tt_submission/tt_um_joshua_vernazza_pinscript.gds \
+            --lef tt_submission/tt_um_joshua_vernazza_pinscript.lef \
+            --pdk-root "$PDK_ROOT" --output supplemental/pin-label.json \
+            --fixture-self-test supplemental/pin-label-fixtures.json \
+            --candidate "$CANDIDATE" --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" --source-sha "$GITHUB_SHA"
+      - name: Retain supplemental checks independently of their verdict
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: m3c-supplemental-${{ inputs.case }}-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 30
+          if-no-files-found: error
+          path: supplemental/
 
   gl_test:
     needs: gds
+    if: ${{ always() && needs.gds.result != 'cancelled' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -91,7 +141,7 @@ jobs:
         env:
           CASE: ${{ inputs.case }}
         run: |
-          case "$CASE" in as-is|repair) ;; *) exit 2 ;; esac
+          case "$CASE" in cts-only) ;; *) exit 2 ;; esac
           cp "m3c/cases/$CASE/info.yaml" info.yaml
           rm -rf test && cp -r m3c/gate-tests test
       - uses: TinyTapeout/tt-gds-action/gl_test@3412659307918422f3f0727917cf9b499aaca588
@@ -109,3 +159,61 @@ jobs:
           path: |
             test/results.xml
             test/Makefile
+
+  project_acceptance:
+    needs: [gds, precheck, gl_test]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Retrieve this run's completed diagnostic jobs as verified ZIPs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 m3c/scripts/retrieve.py "$GITHUB_RUN_ID" --zip-artifacts \
+            --allow-in-progress --out acceptance-run
+      - name: Strict project acceptance (distinct from upstream outcomes)
+        if: always()
+        env:
+          CANDIDATE: m3c-${{ inputs.case }}
+        run: |
+          python3 m3c/scripts/check_acceptance.py --run-dir acceptance-run \
+            --contract m3c/acceptance-contract.json \
+            --source-sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" \
+            --attempt "$GITHUB_RUN_ATTEMPT" --candidate "$CANDIDATE" \
+            --out acceptance-run/acceptance.json
+      - name: Render selected evidence for comparison
+        if: always()
+        continue-on-error: true
+        run: |
+          python3 m3c/scripts/analyze_run.py acceptance-run --out acceptance-run/analysis.json
+          python3 - <<'PY'
+          from pathlib import Path
+          import zipfile
+          matches = []
+          for path in Path("acceptance-run/artifacts").glob("*.zip"):
+              with zipfile.ZipFile(path) as archive:
+                  for name in archive.namelist():
+                      if name.rsplit("/", 1)[-1] == "pin-label.json":
+                          matches.append(archive.read(name))
+          assert len(set(matches)) == 1, "exactly one supplemental pin-label result required"
+          Path("acceptance-run/pin-label.json").write_bytes(matches[0])
+          PY
+          python3 m3c/scripts/timing_evidence.py --run-dir acceptance-run --out acceptance-run/timing-coverage.json
+      - name: Retain project acceptance even on failure
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: m3c-acceptance-${{ inputs.case }}-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            acceptance-run/acceptance.json
+            acceptance-run/analysis.json
+            acceptance-run/timing-coverage.json
+            acceptance-run/pin-label.json
+            acceptance-run/artifacts.json
+            acceptance-run/download-space.json

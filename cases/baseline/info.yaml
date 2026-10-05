@@ -1,0 +1,40 @@
+project:
+  title: PinScript
+  author: Joshua Vernazza
+  discord: ''
+  description: M1 SPI configuration and safe program loader prototype
+  language: Verilog
+  clock_hz: 10000000
+  tiles: 6x4
+  top_module: tt_um_joshua_vernazza_pinscript
+  source_files:
+  - project.v
+  - pinscript_spi_cfg.v
+  - pinscript_registers.v
+  - pinscript_program_store.v
+pinout:
+  ui[0]: CFG_SCLK
+  ui[1]: CFG_MOSI
+  ui[2]: CFG_CS_n
+  ui[3]: ''
+  ui[4]: ''
+  ui[5]: ''
+  ui[6]: ''
+  ui[7]: ''
+  uo[0]: CFG_MISO (dedicated output)
+  uo[1]: ENGINE_RUNNING (zero in M1)
+  uo[2]: CFG_ERROR
+  uo[3]: RX_AVAILABLE (zero in M1)
+  uo[4]: ''
+  uo[5]: ''
+  uo[6]: ''
+  uo[7]: ''
+  uio[0]: PROGRAMMABLE_0 (released in M1)
+  uio[1]: PROGRAMMABLE_1 (released in M1)
+  uio[2]: PROGRAMMABLE_2 (released in M1)
+  uio[3]: PROGRAMMABLE_3 (released in M1)
+  uio[4]: PROGRAMMABLE_4 (released in M1)
+  uio[5]: PROGRAMMABLE_5 (released in M1)
+  uio[6]: PROGRAMMABLE_6 (released in M1)
+  uio[7]: PROGRAMMABLE_7 (released in M1)
+yaml_version: 6

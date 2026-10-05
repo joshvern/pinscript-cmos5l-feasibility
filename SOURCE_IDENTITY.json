@@ -1,0 +1,18 @@
+{
+  "template_revision": "b86a2a781484bcab7ba522dc5de540086695a430",
+  "local_source_uncommitted": true,
+  "production_source_sha256": {
+    "info.yaml": "49c9cb8cbce53963bb08d19754b78adbc273e490e5d84a712b5f2fd5f40f1c84",
+    "src/config.json": "4a175aa98951284800bef96cf3441f89f622fa6c3512a68a000257f1dc27ecd4",
+    "src/project.v": "9f43d888c08172738ba3078e938c9f3b8553117604655851150d821cea93e0b0",
+    "src/pinscript_registers.v": "24fea752661797f8baddc55511de1e5c882776938413eb0c7a8b6c0eeb5c3fc5",
+    "src/pinscript_spi_cfg.v": "bb74224c76854edcd0000d5af18fe5a50a321e6cfddfdfe89b5f273e18b251b6",
+    "src/pinscript_program_store.v": "602aab5eb26951cdc29fa5433924b6b49f0b95f08b99319e7fd998ccf6d21ae9"
+  },
+  "candidates": [
+    "baseline",
+    "separate",
+    "shared"
+  ],
+  "purpose": "CMOS5L experiment only; no production engine or hardware run"
+}

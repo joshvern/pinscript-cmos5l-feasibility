@@ -1,0 +1,98 @@
+name: M3B CMOS5L feasibility
+run-name: M3B ${{ inputs.candidate }} / ${{ github.sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate:
+        description: Isolated 64-word candidate (6x4, 100 ns)
+        required: true
+        type: choice
+        options: [baseline, separate, shared]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: m3b-cmos5l
+  cancel-in-progress: false
+
+jobs:
+  gds:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      LIBRELANE_IMAGE_OVERRIDE: ghcr.io/librelane/librelane@sha256:f454022a9bd73f8b2f2208d3cc4a262ad7e95674780b85fa830c8bbc5b8dd542
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Verify source manifest and select candidate
+        env:
+          CANDIDATE: ${{ inputs.candidate }}
+        run: |
+          sha256sum -c SOURCE_MANIFEST.sha256
+          case "$CANDIDATE" in baseline|separate|shared) ;; *) exit 2 ;; esac
+          cp "cases/$CANDIDATE/info.yaml" info.yaml
+          cp "cases/$CANDIDATE/config.json" src/config.json
+      - name: Official CMOS5L implementation
+        id: implementation
+        uses: TinyTapeout/tt-gds-action@3412659307918422f3f0727917cf9b499aaca588
+        with:
+          pdk: ihp-sg13cmos5l
+          tools-ref: d66cf179e7bc4d296362ab7e2e3b344dc3c4f665
+          librelane-version: 3.1.0.dev3
+      - name: Record resolved flow and reports, including failures
+        if: always()
+        env:
+          CANDIDATE: ${{ inputs.candidate }}
+          IMPLEMENTATION_OUTCOME: ${{ steps.implementation.outcome }}
+        run: python3 scripts/collect_evidence.py
+      - name: Retain complete implementation evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: m3b-${{ inputs.candidate }}-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 7
+          if-no-files-found: error
+          path: |
+            evidence/
+            runs/wokwi/
+            src/
+            info.yaml
+            SOURCE_IDENTITY.json
+            SOURCE_MANIFEST.sha256
+
+  precheck:
+    needs: gds
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: TinyTapeout/tt-gds-action/precheck@3412659307918422f3f0727917cf9b499aaca588
+        with:
+          tools-ref: d66cf179e7bc4d296362ab7e2e3b344dc3c4f665
+
+  gl_test:
+    needs: gds
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Select functional gate test
+        env:
+          CANDIDATE: ${{ inputs.candidate }}
+        run: |
+          case "$CANDIDATE" in baseline|separate|shared) ;; *) exit 2 ;; esac
+          cp "cases/$CANDIDATE/info.yaml" info.yaml
+          cp -r "gate-tests/$CANDIDATE/." test/
+      - uses: TinyTapeout/tt-gds-action/gl_test@3412659307918422f3f0727917cf9b499aaca588
+        with:
+          test-dir: test
+      - name: Reject missing, skipped, or failed tests
+        run: python3 scripts/check_results.py --expect "$(cat test/expected-count.txt)" --forbid-skips test/results.xml
+
+# Deliberately no push/pull_request triggers, viewer, Pages, deployments,
+# self-hosted/larger runners, or write permissions. This file is an export
+# template: it is not installed in the production repository's workflows.
